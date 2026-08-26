@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
@@ -183,12 +183,16 @@ def evaluate_placement_function(
     *,
     num_layers: int | None = None,
 ) -> list[EpisodeRecord]:
-    """Evaluate a method that computes a whole placement at once.
+    """Evaluate a method that computes a whole placement offline.
 
-    Used by the exhaustive search and the dynamic-programming optimum, which
-    solve the problem offline rather than layer by layer. The resulting
-    placement is then replayed through the environment so that every method is
-    scored by exactly the same simulator.
+    Used by the exhaustive search and the dynamic-programming baseline, which
+    solve the problem in one shot rather than layer by layer. The placement is
+    scored with :func:`~src.environment.reward.evaluate_placement`, which applies
+    exactly the same arithmetic as the environment but *counts* memory
+    violations instead of rejecting them. That matters for the relaxed dynamic
+    programme, whose solution can be infeasible once memory accumulation is
+    switched on; rolling it through the masked environment would raise rather
+    than report the problem.
 
     Args:
         config: The configuration in force.
@@ -200,44 +204,37 @@ def evaluate_placement_function(
     Returns:
         One :class:`EpisodeRecord` per seed.
     """
+    from src.environment.reward import evaluate_placement
     from src.environment.scenario import sample_scenario  # local import avoids a cycle
 
-    environment = DNNPlacementEnv(config, num_layers=num_layers)
     records = []
     for seed in seeds:
         scenario = sample_scenario(config, seed, num_layers=num_layers)
         started = time.perf_counter()
         placement = placement_fn(scenario)
         runtime_s = time.perf_counter() - started
-        record = run_episode(
-            environment,
-            _ScriptedAgent(placement, method_name),
-            scenario=scenario,
-            method_name=method_name,
+
+        result = evaluate_placement(scenario, placement, config)
+        records.append(
+            EpisodeRecord(
+                method=method_name,
+                scenario_seed=scenario.seed,
+                num_layers=result.num_layers,
+                placement=result.placement,
+                compute_latency_ms=result.compute_latency_ms,
+                communication_latency_ms=result.communication_latency_ms,
+                total_latency_ms=result.total_latency_ms,
+                energy=result.energy,
+                objective=result.objective,
+                memory_violations=result.memory_violations,
+                invalid_action_attempts=result.memory_violations,
+                device_switches=result.device_switches,
+                episode_return=-result.objective,
+                decision_runtime_s=runtime_s,
+                congested=scenario.has_congestion,
+            )
         )
-        # The scripted replay costs nothing meaningful; report the solver's time.
-        record.decision_runtime_s = runtime_s
-        records.append(record)
     return records
-
-
-class _ScriptedAgent:
-    """Replays a precomputed placement through the environment."""
-
-    def __init__(self, placement: Sequence[int], name: str) -> None:
-        self.name = name
-        self._placement = list(placement)
-        self._cursor = 0
-
-    def reset(self) -> None:
-        """Rewind to the first layer."""
-        self._cursor = 0
-
-    def act(self, observation: np.ndarray, info: Mapping[str, Any]) -> int:
-        """Return the precomputed device for the current layer."""
-        action = self._placement[self._cursor]
-        self._cursor += 1
-        return int(action)
 
 
 __all__ = [

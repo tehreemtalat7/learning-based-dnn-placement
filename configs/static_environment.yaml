@@ -1,0 +1,9 @@
+# Experiment 1: static comparison.
+#
+# Device performance, background load and network conditions are all stable, so
+# the only thing that changes during an episode is what the placement itself
+# causes. This is the setting in which the heuristics are strongest, and the
+# fairest baseline comparison.
+
+network:
+  profile: normal

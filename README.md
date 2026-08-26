@@ -10,10 +10,11 @@ placement strategies.
 > reported here is produced by the scripts in this repository from the raw CSVs
 > in `results/raw/`; nothing is quoted from elsewhere or estimated by hand.
 
-**Status:** the simulation environment and non-learning baselines are complete
-and validated. Learning agents, exact baselines and the experiment suite are
-being added phase by phase; the results sections below are populated from
-generated data as each phase lands.
+**Status:** the simulation environment, the heuristic baselines, the exact
+baselines (exhaustive search and dynamic programming) and the static comparison
+experiment are complete. The supervised, tabular and deep RL agents and the
+dynamic-condition experiments are being added phase by phase; the results
+sections below are populated from generated data as each phase lands.
 
 ---
 
@@ -186,11 +187,73 @@ asymmetry.
 
 ## 8. Results
 
-*Populated from `results/processed/` as the experiment phases land.*
+*Populated from `results/processed/` as the experiment phases land. Learning
+methods are not in these tables yet — they arrive with the phases that implement
+them.*
+
+### Experiment 1 — static comparison
+
+300 held-out scenarios, 10-layer DNNs, stable network. Reproduce with
+`python -m experiments.static_experiment`.
+
+| Method | Objective | Latency (ms) | Energy | Gap vs best known |
+|---|---:|---:|---:|---:|
+| Random | 1.181 | 10 411 | 27.8 | 162.98 % |
+| Round robin | 0.992 | 8 325 | 25.8 | 119.57 % |
+| Greedy (fastest device) | 0.696 | 1 441 | 46.8 | 54.38 % |
+| Greedy (communication-aware) | 0.530 | 1 128 | 40.1 | 17.06 % |
+| **Greedy (objective-aware)** | **0.458** | 2 728 | 24.6 | **0.34 %** |
+| DP (relaxed problem) | 0.473 | 3 573 | 20.9 | 3.24 % |
+
+On 5-layer DNNs, where exhaustive search is affordable (1 024 candidates per
+scenario), the gaps are measured against the true optimum: objective-aware
+greedy 0.26 %, the dynamic programme 0.12 %.
+
+**The result worth pausing on.** At ten layers the dynamic-programming placement
+is *beaten* by objective-aware greedy — 0.473 against 0.458, with greedy cheaper
+in 90 % of scenarios (paired Wilcoxon, p = 8.6 × 10⁻¹⁹). This is not a bug in the
+solver. The dynamic programme is exact for the *relaxed* problem in which
+devices never slow down and never fill up; it therefore concentrates work on the
+fastest devices without accounting for the congestion its own choices create.
+The greedy heuristic, deciding inside the real environment, sees the accumulated
+utilisation and routes around it.
+
+Two consequences run through the rest of the project. Anything computed on the
+relaxation must be labelled as such — hence `DP (relaxed problem)` rather than
+"optimal". And the interesting question for the learning agent is sharpened: in
+the static setting the strongest heuristic is already within 0.26 % of optimal,
+so there is almost no headroom; whatever advantage sequential learning has must
+come from *anticipating* accumulation and from the dynamic conditions of
+Experiments 3 and 4.
+
+Measured on 8-layer DNNs, where both the relaxation and brute force can be run:
+the DP lower bound sits 4.89 % below the true optimum, while the DP *placement*
+lands 1.47 % above it.
+
+### Cost of the optimal reference
+
+| Depth | Candidate placements | Exhaustive search | Dynamic programming |
+|---:|---:|---:|---:|
+| 5 | 1 024 | 0.04 s | 0.17 ms |
+| 8 | 65 536 | 4.4 s | 0.27 ms |
+| 10 | 1 048 576 | 83.7 s | 0.33 ms |
+| 50 | 4⁵⁰ | infeasible | ~1 ms |
+
+This is why the previous project could only report optimality gaps for five-layer
+DNNs, and why the dynamic programme was added here.
 
 ## 9. Visualisations
 
-*Generated into `results/figures/` by `make experiments && make figures`.*
+Generated into `results/figures/` by the experiment scripts; every figure is
+built from the CSVs in `results/`, never hand-authored.
+
+| Figure | Content |
+|---|---|
+| `fig03_latency_by_method.png` | Mean end-to-end latency by method |
+| `fig04_energy_by_method.png` | Mean energy consumption by method |
+| `fig05_objective_by_method.png` | Mean weighted objective by method |
+| `fig06_runtime_by_method.png` | Placement decision time per layer (log scale) |
+| `fig10_optimality_gap.png` | Optimality gap against exhaustive search, 5-layer DNNs |
 
 ## 10. Key findings
 
