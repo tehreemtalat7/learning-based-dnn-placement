@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environment
+.venv/
+venv/
+
+# Trained models and large artefacts
+checkpoints/
+*.pt
+
+# macOS
+.DS_Store
+
+# Results: figures and processed tables are committed (they are the paper's evidence);
+# raw per-scenario CSVs can be regenerated with `make experiments`.
+results/raw/*.csv

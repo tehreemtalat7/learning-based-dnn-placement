@@ -1,0 +1,185 @@
+# Default configuration for the adaptive DNN placement study.
+#
+# Every experiment loads this file first and then merges an experiment-specific
+# file on top of it, so this document is the single place where the meaning of
+# each parameter is defined. Ranges written as [min, max] are sampled uniformly
+# per scenario; a bare number means "fixed".
+
+seed: 42
+
+experiment:
+  # Scenario seeds are drawn from two disjoint pools so that every reported
+  # number comes from scenarios the learning methods have never seen.
+  train_seed_start: 1_000_000
+  train_seed_count: 200_000
+  eval_seed_start: 9_000_000
+  n_eval_scenarios: 300
+  # Exhaustive search refuses to run above this many candidate placements.
+  max_exhaustive_combinations: 1_000_000
+
+objective:
+  # Weights of the placement cost. They must be non-negative and sum to 1 so
+  # that the weighted objective stays comparable across configurations.
+  alpha: 0.5   # end-to-end latency (computation + communication)
+  beta: 0.3    # energy consumption
+  gamma: 0.2   # explicit communication penalty
+  # Communication time already appears inside the latency term. Counting it
+  # again under `gamma` is a deliberate congestion penalty; set this to false
+  # to measure how much the double counting matters.
+  comm_double_count: true
+  # When true, (alpha, beta, gamma) are drawn per scenario from a Dirichlet
+  # distribution and exposed in the state, so a single policy is conditioned on
+  # the trade-off it is asked to optimise. Off by default: fixed weights keep
+  # comparisons between methods unambiguous.
+  randomise_weights: false
+
+environment:
+  # Sequential coupling switches. With both false the episode cost depends only
+  # on (previous device, current device), which makes the dynamic-programming
+  # optimum provably exact. With either true the problem becomes path dependent.
+  memory_accumulates: true
+  utilisation_accumulates: true
+  # Compute units that would fully saturate a device of unit capacity; used to
+  # convert assigned compute into extra utilisation.
+  utilisation_load_scale: 8.0
+  utilisation_max: 0.95
+  # Effective speed never drops below this fraction of nominal capacity.
+  effective_speed_floor: 0.05
+  # How infeasible device choices are handled: "mask" (default, recommended)
+  # removes them from the action space; "penalty" allows them and charges a
+  # fixed cost. Experiment 5 compares the two.
+  invalid_action_mode: mask
+  invalid_action_penalty: 1.0
+  # Device holding the DNN input before the first layer executes.
+  input_source_device: edge_device
+  # Energy spent transmitting activations. Off by default so that the energy
+  # metric stays directly comparable with the previous project's model.
+  include_transmission_energy: false
+  transmission_energy_per_mb: 0.02
+
+# Four heterogeneous device archetypes. Concrete values are sampled per scenario.
+#
+# Memory ranges are chosen so that the constraint genuinely binds: with these
+# settings a dense head layer does not fit on the edge device in roughly a third
+# of episodes, and memory accumulation closes devices part way through others.
+# The tightness was calibrated once, before any learning agent existed, and is
+# reported in the README's experimental setup rather than tuned afterwards.
+devices:
+  - name: edge_device        # phone-class: slow, cheap to run, little memory
+    compute_capacity: [0.8, 1.4]
+    memory_gb: [2.0, 5.0]
+    energy_per_compute: [0.4, 0.7]
+    base_utilisation: [0.0, 0.25]
+  - name: edge_server        # on-premise micro server
+    compute_capacity: [4.0, 7.0]
+    memory_gb: [10.0, 18.0]
+    energy_per_compute: [1.0, 1.5]
+    base_utilisation: [0.0, 0.35]
+  - name: gpu_server         # accelerator: fast but power hungry
+    compute_capacity: [12.0, 20.0]
+    memory_gb: [24.0, 40.0]
+    energy_per_compute: [2.0, 3.0]
+    base_utilisation: [0.0, 0.40]
+  - name: cloud_server       # very fast, plentiful memory, far away
+    compute_capacity: [25.0, 40.0]
+    memory_gb: [64.0, 128.0]
+    energy_per_compute: [2.5, 4.0]
+    base_utilisation: [0.0, 0.30]
+
+network:
+  profile: normal
+  # Symmetric point-to-point links. Every pair of devices must appear exactly once.
+  links:
+    - between: [edge_device, edge_server]
+      latency_ms: [2.0, 8.0]
+      bandwidth_mbps: [200.0, 600.0]
+    - between: [edge_device, gpu_server]
+      latency_ms: [4.0, 12.0]
+      bandwidth_mbps: [150.0, 400.0]
+    - between: [edge_device, cloud_server]
+      latency_ms: [35.0, 90.0]
+      bandwidth_mbps: [15.0, 60.0]
+    - between: [edge_server, gpu_server]
+      latency_ms: [1.0, 4.0]
+      bandwidth_mbps: [500.0, 1200.0]
+    - between: [edge_server, cloud_server]
+      latency_ms: [25.0, 70.0]
+      bandwidth_mbps: [40.0, 150.0]
+    - between: [gpu_server, cloud_server]
+      latency_ms: [20.0, 60.0]
+      bandwidth_mbps: [80.0, 250.0]
+  # A profile scales the sampled link characteristics. `event_probability` is the
+  # chance that a congestion event happens at all in an episode;
+  # `mid_episode_probability` is the chance that, given an event, it starts part
+  # way through the episode instead of being present from the first layer.
+  profiles:
+    normal:
+      latency_scale: [1.0, 1.0]
+      bandwidth_scale: [1.0, 1.0]
+      event_probability: 0.0
+      mid_episode_probability: 0.0
+    congested:
+      latency_scale: [2.5, 5.0]
+      bandwidth_scale: [0.20, 0.45]
+      event_probability: 1.0
+      mid_episode_probability: 0.0
+    dynamic:
+      latency_scale: [2.5, 5.0]
+      bandwidth_scale: [0.20, 0.45]
+      event_probability: 0.5
+      mid_episode_probability: 0.5
+
+# Synthetic CNN-like workload generator. See docs/DESIGN.md for the rationale
+# behind the shape of these numbers; they are NOT profiled from real networks.
+workload:
+  num_layers: 10
+  input_size_mb: [1.0, 6.0]
+  # Feature-extraction stage
+  base_compute: [0.6, 1.6]
+  compute_growth: [1.00, 1.25]
+  base_activation_mb: [6.0, 20.0]
+  pool_every: 2
+  activation_decay: [0.75, 0.95]
+  feature_memory_gb: [0.05, 0.50]
+  # Dense head: the last `head_fraction` of layers
+  head_fraction: 0.25
+  head_compute_scale: [0.8, 1.6]
+  head_memory_gb: [1.0, 4.5]
+  head_output_mb: [0.004, 0.050]
+  # Multiplicative log-normal jitter applied to every generated quantity
+  jitter_sigma: 0.15
+
+dqn:
+  hidden_sizes: [128, 128]
+  learning_rate: 0.0005
+  buffer_capacity: 100_000
+  batch_size: 128
+  discount: 0.99
+  learning_starts: 2_000
+  train_frequency: 1
+  target_update_interval: 500
+  epsilon_start: 1.0
+  epsilon_end: 0.05
+  epsilon_decay_fraction: 0.5
+  total_steps: 150_000
+  double_dqn: true
+  grad_clip_norm: 10.0
+  eval_interval: 5_000
+  eval_episodes: 50
+  seeds: [0, 1, 2]
+
+q_learning:
+  learning_rate: 0.10
+  discount: 0.99
+  epsilon_start: 1.0
+  epsilon_end: 0.02
+  epsilon_decay_fraction: 0.6
+  episodes: 20_000
+  memory_buckets: 4
+  seeds: [0, 1, 2]
+
+supervised:
+  n_estimators: 200
+  max_depth: null
+  min_samples_leaf: 1
+  n_training_scenarios: 3_000
