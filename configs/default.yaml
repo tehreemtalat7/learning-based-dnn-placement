@@ -8,10 +8,14 @@
 seed: 42
 
 experiment:
-  # Scenario seeds are drawn from two disjoint pools so that every reported
-  # number comes from scenarios the learning methods have never seen.
+  # Scenario seeds come from three disjoint pools. Training draws from the first;
+  # model selection and the periodic checks during training use the second; and
+  # every reported number comes from the third, which no learning method ever
+  # sees during training or checkpoint selection.
   train_seed_start: 1_000_000
   train_seed_count: 200_000
+  valid_seed_start: 5_000_000
+  n_valid_scenarios: 100
   eval_seed_start: 9_000_000
   n_eval_scenarios: 300
   # Exhaustive search refuses to run above this many candidate placements.
@@ -154,7 +158,11 @@ dqn:
   learning_rate: 0.0005
   buffer_capacity: 100_000
   batch_size: 128
-  discount: 0.99
+  # An episode is a fixed, short horizon and the objective is the *undiscounted*
+  # sum of per-layer costs, so a discount of 1.0 is what makes the quantity the
+  # agent maximises identical to the quantity the experiments report. Anything
+  # below 1.0 would quietly under-weight the last layers of the DNN.
+  discount: 1.0
   learning_starts: 2_000
   train_frequency: 1
   target_update_interval: 500

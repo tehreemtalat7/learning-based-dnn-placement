@@ -249,20 +249,33 @@ class ExperimentConfig:
     eval_seed_start: int
     n_eval_scenarios: int
     max_exhaustive_combinations: int
+    valid_seed_start: int = 5_000_000
+    n_valid_scenarios: int = 100
 
     def __post_init__(self) -> None:
-        train_end = self.train_seed_start + self.train_seed_count
-        eval_end = self.eval_seed_start + self.n_eval_scenarios
-        overlaps = self.train_seed_start < eval_end and self.eval_seed_start < train_end
-        if overlaps:
-            raise ConfigError(
-                "training and evaluation seed pools overlap; evaluation scenarios would "
-                "no longer be held out"
-            )
+        pools = {
+            "training": (self.train_seed_start, self.train_seed_start + self.train_seed_count),
+            "validation": (self.valid_seed_start, self.valid_seed_start + self.n_valid_scenarios),
+            "evaluation": (self.eval_seed_start, self.eval_seed_start + self.n_eval_scenarios),
+        }
+        names = list(pools)
+        for index, first in enumerate(names):
+            for second in names[index + 1 :]:
+                first_start, first_end = pools[first]
+                second_start, second_end = pools[second]
+                if first_start < second_end and second_start < first_end:
+                    raise ConfigError(
+                        f"the {first} and {second} seed pools overlap; scenarios would no "
+                        "longer be held out"
+                    )
 
     def eval_seeds(self) -> list[int]:
         """The held-out scenario seeds, identical for every method compared."""
         return [self.eval_seed_start + index for index in range(self.n_eval_scenarios)]
+
+    def valid_seeds(self) -> list[int]:
+        """Validation seeds, used for checkpoint selection and progress checks."""
+        return [self.valid_seed_start + index for index in range(self.n_valid_scenarios)]
 
 
 @dataclass(frozen=True)

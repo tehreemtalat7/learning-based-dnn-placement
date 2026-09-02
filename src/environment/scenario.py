@@ -166,6 +166,18 @@ def evaluation_seeds(config: Config, count: int | None = None) -> list[int]:
     return [config.experiment.eval_seed_start + index for index in range(count)]
 
 
+def validation_seeds(config: Config, count: int | None = None) -> list[int]:
+    """Return validation seeds, disjoint from both the training and test pools.
+
+    Used for checkpoint selection and for the periodic progress checks during
+    training, so that no decision about a model is ever made using the scenarios
+    its results are reported on.
+    """
+    if count is None:
+        return config.experiment.valid_seeds()
+    return [config.experiment.valid_seed_start + index for index in range(count)]
+
+
 def summarise_scenarios(scenarios: list[Scenario]) -> dict[str, float]:
     """Aggregate a scenario collection, for reporting the experimental setup.
 
@@ -202,4 +214,5 @@ __all__ = [
     "sample_scenario",
     "summarise_scenarios",
     "training_seeds",
+    "validation_seeds",
 ]

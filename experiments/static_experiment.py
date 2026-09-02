@@ -39,6 +39,7 @@ import numpy as np
 import pandas as pd
 
 from src.agents import build_heuristic_agents
+from src.agents.dqn_agent import DEFAULT_CHECKPOINT_PATH, DQNAgent
 from src.agents.q_learning_agent import DEFAULT_TABLE_PATH, TabularQAgent
 from src.baselines import dp_optimal, exhaustive_search
 from src.baselines.supervised_ml import DEFAULT_MODEL_PATH, SupervisedAgent, load_model
@@ -55,6 +56,8 @@ from src.utils.metrics import (
     summarise_by_method,
 )
 from src.utils.stats import paired_comparison
+
+DQN_SEED_GLOB = "dqn_seed*.pt"
 
 REPORTED_METRICS = (
     "objective",
@@ -93,6 +96,14 @@ def load_learned_agents(config: Config) -> list:
         print(
             f"  supervised baseline not found at {DEFAULT_MODEL_PATH}; "
             "train it with `python -m src.training.train_supervised`"
+        )
+
+    if Path(DEFAULT_CHECKPOINT_PATH).exists():
+        agents.append(DQNAgent.load(DEFAULT_CHECKPOINT_PATH, config.dqn))
+    else:
+        print(
+            f"  DQN checkpoint not found at {DEFAULT_CHECKPOINT_PATH}; "
+            "train it with `python -m src.training.train_dqn`"
         )
 
     for path, name in (

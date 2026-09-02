@@ -32,6 +32,7 @@ train:
 	$(PY) -m src.training.train_supervised
 	$(PY) -m src.training.train_q_learning
 	$(PY) -m src.training.train_q_learning --set q_learning.mode=pooled --output checkpoints/q_table_pooled.joblib
+	$(PY) -m src.training.train_dqn
 
 experiments:
 	$(PY) -m experiments.run_all
