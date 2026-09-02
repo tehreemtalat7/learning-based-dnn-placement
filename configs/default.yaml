@@ -169,6 +169,12 @@ dqn:
   seeds: [0, 1, 2]
 
 q_learning:
+  # "single_scenario" trains on one fixed problem, where the discrete state is
+  # exact and the table converges to the optimum. "pooled" trains the same table
+  # across many scenarios, where the abstraction cannot see device speeds or link
+  # characteristics at all -- included to demonstrate the aliasing rather than
+  # merely assert it.
+  mode: single_scenario
   learning_rate: 0.10
   discount: 0.99
   epsilon_start: 1.0
@@ -179,6 +185,16 @@ q_learning:
   seeds: [0, 1, 2]
 
 supervised:
+  # Which oracle the classifier imitates:
+  #   auto        exhaustive search where affordable, best-known placement otherwise
+  #   exhaustive  brute-force optimum (small depths only)
+  #   dp          the dynamic-programming placement
+  #   best_known  cheapest of the dynamic programme and the greedy heuristics
+  # "auto" is the default because handicapping the supervised baseline with a
+  # weaker teacher than is available would make the comparison against
+  # reinforcement learning a comparison of teachers instead.
+  teacher: auto
+  max_exhaustive_layers: 6
   n_estimators: 200
   max_depth: null
   min_samples_leaf: 1

@@ -308,16 +308,35 @@ class QLearningConfig:
     episodes: int
     memory_buckets: int
     seeds: tuple[int, ...]
+    mode: str = "single_scenario"
+
+    VALID_MODES = ("single_scenario", "pooled")
+
+    def __post_init__(self) -> None:
+        if self.mode not in self.VALID_MODES:
+            raise ConfigError(
+                f"q_learning.mode must be one of {self.VALID_MODES}, got {self.mode!r}"
+            )
 
 
 @dataclass(frozen=True)
 class SupervisedConfig:
-    """Hyper-parameters of the Random Forest imitation baseline."""
+    """Hyper-parameters and supervision source of the Random Forest baseline."""
 
     n_estimators: int
     max_depth: int | None
     min_samples_leaf: int
     n_training_scenarios: int
+    teacher: str = "auto"
+    max_exhaustive_layers: int = 6
+
+    VALID_TEACHERS = ("auto", "exhaustive", "dp", "best_known")
+
+    def __post_init__(self) -> None:
+        if self.teacher not in self.VALID_TEACHERS:
+            raise ConfigError(
+                f"supervised.teacher must be one of {self.VALID_TEACHERS}, got {self.teacher!r}"
+            )
 
 
 @dataclass(frozen=True)

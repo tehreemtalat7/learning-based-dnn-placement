@@ -4,12 +4,13 @@ PYTHON_BOOTSTRAP ?= /usr/local/bin/python3.11
 VENV := .venv
 PY := $(VENV)/bin/python
 
-.PHONY: help setup test validate experiments figures docs all clean
+.PHONY: help setup test validate train experiments figures docs all clean
 
 help:
 	@echo "make setup        Create .venv and install requirements"
 	@echo "make test         Run the unit test suite"
 	@echo "make validate     Sanity-check the environment with non-learning agents"
+	@echo "make train        Train the supervised and tabular agents into checkpoints/"
 	@echo "make experiments  Run every experiment and write results/raw/*.csv"
 	@echo "make figures      Rebuild every figure from the existing CSVs"
 	@echo "make docs         Regenerate the generated documentation"
@@ -27,6 +28,11 @@ test:
 validate:
 	$(PY) -m experiments.validate_environment
 
+train:
+	$(PY) -m src.training.train_supervised
+	$(PY) -m src.training.train_q_learning
+	$(PY) -m src.training.train_q_learning --set q_learning.mode=pooled --output checkpoints/q_table_pooled.joblib
+
 experiments:
 	$(PY) -m experiments.run_all
 
@@ -36,7 +42,7 @@ figures:
 docs:
 	$(PY) -m src.environment.observation > docs/STATE_SPEC.md
 
-all: setup test experiments figures
+all: setup test train experiments figures
 
 clean:
 	rm -rf .pytest_cache .ruff_cache

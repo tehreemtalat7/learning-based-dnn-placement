@@ -11,10 +11,11 @@ placement strategies.
 > in `results/raw/`; nothing is quoted from elsewhere or estimated by hand.
 
 **Status:** the simulation environment, the heuristic baselines, the exact
-baselines (exhaustive search and dynamic programming) and the static comparison
-experiment are complete. The supervised, tabular and deep RL agents and the
-dynamic-condition experiments are being added phase by phase; the results
-sections below are populated from generated data as each phase lands.
+baselines (exhaustive search and dynamic programming), the supervised Random
+Forest baseline and tabular Q-learning are complete, along with the static
+comparison experiment. The deep Q-network and the dynamic-condition experiments
+are being added phase by phase; the results sections below are populated from
+generated data as each phase lands.
 
 ---
 
@@ -196,14 +197,21 @@ them.*
 300 held-out scenarios, 10-layer DNNs, stable network. Reproduce with
 `python -m experiments.static_experiment`.
 
-| Method | Objective | Latency (ms) | Energy | Gap vs best known |
-|---|---:|---:|---:|---:|
-| Random | 1.181 | 10 411 | 27.8 | 162.98 % |
-| Round robin | 0.992 | 8 325 | 25.8 | 119.57 % |
-| Greedy (fastest device) | 0.696 | 1 441 | 46.8 | 54.38 % |
-| Greedy (communication-aware) | 0.530 | 1 128 | 40.1 | 17.06 % |
-| **Greedy (objective-aware)** | **0.458** | 2 728 | 24.6 | **0.34 %** |
-| DP (relaxed problem) | 0.473 | 3 573 | 20.9 | 3.24 % |
+| Method | Objective | Latency (ms) | Energy | Gap vs best known | Decision time / layer |
+|---|---:|---:|---:|---:|---:|
+| Random | 1.181 | 10 411 | 27.8 | 163.03 % | 6 µs |
+| Round robin | 0.992 | 8 325 | 25.8 | 119.62 % | 1 µs |
+| Greedy (fastest device) | 0.696 | 1 441 | 46.8 | 54.42 % | 3 µs |
+| Greedy (communication-aware) | 0.530 | 1 128 | 40.1 | 17.08 % | 3 µs |
+| **Greedy (objective-aware)** | **0.458** | 2 728 | 24.6 | **0.37 %** | 3 µs |
+| Random Forest (supervised) | 0.461 | 2 969 | 23.3 | 1.00 % | 5 063 µs |
+| Tabular Q (pooled) | 0.480 | 2 310 | 28.7 | 5.57 % | 15 µs |
+| Tabular Q (single scenario) | 0.586 | 3 114 | 33.2 | 29.12 % | 15 µs |
+| DP (relaxed problem) | 0.473 | 3 573 | 20.9 | 3.26 % | 33 µs |
+
+No method records a memory violation: action masking makes every placement
+feasible by construction, so the repair pass the previous project needed has no
+counterpart here.
 
 On 5-layer DNNs, where exhaustive search is affordable (1 024 candidates per
 scenario), the gaps are measured against the true optimum: objective-aware
@@ -230,6 +238,60 @@ Measured on 8-layer DNNs, where both the relaxation and brute force can be run:
 the DP lower bound sits 4.89 % below the true optimum, while the DP *placement*
 lands 1.47 % above it.
 
+### Learning from an oracle is not the same as being good at the task
+
+The supervised baseline is trained on the same 58 features the RL agent sees,
+imitating the strongest oracle available for each scenario (exhaustive search
+where affordable; otherwise the cheapest of the dynamic programme and the greedy
+heuristics — the teacher mix at ten layers came out 52.7 % dynamic programme,
+45.7 % objective-aware greedy, 1.6 % communication-aware greedy).
+
+| | Value |
+|---|---:|
+| Per-layer agreement with the oracle, held out | 93.7 % |
+| Exact whole-placement agreement, held out | 44.7 % |
+| Rolled-out objective | 0.461 |
+
+Reproducing 93.7 % of the oracle's individual decisions still lands **0.65 %
+behind the myopic heuristic** it partly imitates, winning only 2 % of scenarios
+(paired Wilcoxon, p = 5.3 × 10⁻²⁷). This is behaviour cloning's characteristic
+failure: the classifier only ever sees states the *oracle* visits, so the first
+time its own mistake leads somewhere unfamiliar, nothing in its training says
+what to do — and under memory accumulation an early mistake keeps mattering. It
+is a concrete motivation for optimising return over the agent's own state
+distribution rather than imitating decisions.
+
+Worth noting for the runtime figure: the Random Forest costs ~5 ms per decision
+against ~3 µs for the greedy heuristics, three orders of magnitude more. That is
+scikit-learn's per-call overhead on single-row inference over 200 trees rather
+than anything intrinsic to the model, but it is what this implementation costs.
+
+### Why the deep agent is necessary, measured rather than asserted
+
+Tabular Q-learning needs a finite state space, so the state collapses to
+*(layer index, device holding the activation, memory bucket per device)* — device
+speeds, energy rates, link latencies and bandwidths are all discarded, being
+continuous quantities that differ in every scenario.
+
+| Setting | Objective on held-out scenarios |
+|---|---:|
+| Trained on one fixed scenario | 0.586 |
+| Trained across sampled scenarios ("pooled") | 0.480 |
+| Objective-aware greedy | 0.458 |
+
+On the single scenario it trains on, the table converges **exactly** to the
+dynamic-programming placement (0.4699 against 0.4699, a 0.00 % gap) — the
+abstraction is lossless when the discarded quantities are constants. Transferred
+to unseen scenarios the same table is 29 % worse than greedy.
+
+The sharpest detail is this: **0 % of the states met at evaluation are states the
+table never visited in training.** The agent is not guessing on unfamiliar
+states; it has an entry for every state it meets and is still wrong, because the
+state does not contain what the decision depends on. Pooled training recovers
+much of the loss (0.480) by learning a good *average* placement pattern, but it
+cannot condition on the scenario in front of it. That is precisely the gap
+function approximation exists to close.
+
 ### Cost of the optimal reference
 
 | Depth | Candidate placements | Exhaustive search | Dynamic programming |
@@ -254,6 +316,8 @@ built from the CSVs in `results/`, never hand-authored.
 | `fig05_objective_by_method.png` | Mean weighted objective by method |
 | `fig06_runtime_by_method.png` | Placement decision time per layer (log scale) |
 | `fig10_optimality_gap.png` | Optimality gap against exhaustive search, 5-layer DNNs |
+| `fig11_tabular_training_single_scenario.png` | Tabular Q-learning converging onto the exact solution |
+| `fig11_tabular_training_pooled.png` | The same table trained across scenarios |
 
 ## 10. Key findings
 
@@ -292,9 +356,14 @@ interpreter: `make setup PYTHON_BOOTSTRAP=/path/to/python3.11`.
 ```bash
 make test        # unit tests
 make validate    # environment sanity checks with non-learning agents
+make train       # train the learned agents into checkpoints/
 make experiments # every experiment; writes results/raw/*.csv
 make figures     # rebuilds every figure from those CSVs
 ```
+
+The learned methods are optional: the experiments run without them and report
+which checkpoints are missing, so a partial results table can never be mistaken
+for a complete one.
 
 Individual scripts run as modules from the repository root, for example:
 

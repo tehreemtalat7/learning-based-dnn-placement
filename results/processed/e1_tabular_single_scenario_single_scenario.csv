@@ -1,0 +1,2 @@
+scenario_seed,tabular_objective,greedy_objective,dp_objective,dp_lower_bound,gap_vs_dp_placement_pct
+1000000.0,0.4699296186923935,0.4699296186923935,0.4699296186923935,0.46588072098132854,0.0

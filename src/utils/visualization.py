@@ -64,6 +64,7 @@ METHOD_SLOTS: dict[str, int] = {
     "greedy_communication_aware": 3,
     "random": 4,
     "tabular_q": 5,
+    "tabular_q_pooled": 5,
     "greedy_fastest_device": 3,
     "round_robin": 4,
 }
@@ -378,6 +379,86 @@ def lines_by_x(
     return save(figure, name)
 
 
+def training_curve(
+    curves: pd.DataFrame,
+    name: str,
+    *,
+    title: str,
+    subtitle: str | None = None,
+    x_column: str = "episode",
+    value_column: str = "episode_return",
+    smoothed_column: str | None = "moving_average_return",
+    seed_column: str | None = "agent_seed",
+    reference_value: float | None = None,
+    reference_label: str = "reference",
+    x_label: str = "Training episodes",
+    y_label: str = "Episode return",
+) -> Path:
+    """Plot a learning curve, one line per training seed.
+
+    The raw per-episode return is drawn faintly behind the smoothed curve, so the
+    variance is visible rather than hidden by the smoothing -- which matters when
+    the claim is that a policy has converged.
+    """
+    apply_style()
+    figure, axes = plt.subplots(figsize=(7.6, 4.4))
+
+    groups = (
+        list(curves.groupby(seed_column))
+        if seed_column and seed_column in curves.columns
+        else [(None, curves)]
+    )
+    for index, (seed, frame) in enumerate(groups):
+        colour = SLOT_COLOURS[index % len(SLOT_COLOURS)]
+        frame = frame.sort_values(x_column)
+        axes.plot(
+            frame[x_column],
+            frame[value_column],
+            color=colour,
+            alpha=0.25,
+            linewidth=1.0,
+        )
+        if smoothed_column and smoothed_column in frame.columns:
+            axes.plot(
+                frame[x_column],
+                frame[smoothed_column],
+                color=colour,
+                linewidth=2.0,
+                label=f"seed {seed}" if seed is not None else "moving average",
+            )
+
+    if reference_value is not None:
+        axes.axhline(reference_value, color=TEXT_SECONDARY, linewidth=1.4)
+        axes.annotate(
+            reference_label,
+            xy=(curves[x_column].max(), reference_value),
+            xytext=(-4, 5),
+            textcoords="offset points",
+            ha="right",
+            fontsize=8.5,
+            color=TEXT_SECONDARY,
+        )
+
+    # A single unlucky exploration episode can be an order of magnitude worse than
+    # the rest, which would compress the whole curve into the top of the plot.
+    # The axis is framed on the smoothed series instead; the raw line still shows
+    # the variance, it simply may run off the bottom.
+    if smoothed_column and smoothed_column in curves.columns:
+        smoothed = curves[smoothed_column]
+        lowest, highest = float(smoothed.min()), float(smoothed.max())
+        if reference_value is not None:
+            lowest, highest = min(lowest, reference_value), max(highest, reference_value)
+        margin = max((highest - lowest) * 0.35, 0.05)
+        axes.set_ylim(lowest - margin, highest + margin)
+
+    axes.set_xlabel(x_label)
+    axes.set_ylabel(y_label)
+    if len(groups) > 1 or reference_value is not None:
+        axes.legend(loc="lower right")
+    _finish(axes, title=title, subtitle=subtitle, x_grid=False, y_grid=True)
+    return save(figure, name)
+
+
 def grouped_bars(
     summary: pd.DataFrame,
     group_column: str,
@@ -468,5 +549,6 @@ __all__ = [
     "grouped_bars",
     "lines_by_x",
     "marker_for",
+    "training_curve",
     "save",
 ]

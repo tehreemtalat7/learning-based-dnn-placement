@@ -39,7 +39,9 @@ import numpy as np
 import pandas as pd
 
 from src.agents import build_heuristic_agents
+from src.agents.q_learning_agent import DEFAULT_TABLE_PATH, TabularQAgent
 from src.baselines import dp_optimal, exhaustive_search
+from src.baselines.supervised_ml import DEFAULT_MODEL_PATH, SupervisedAgent, load_model
 from src.config import Config, config_summary, load_config
 from src.environment.scenario import evaluation_seeds, sample_scenario
 from src.training.evaluate import evaluate_agent, evaluate_placement_function
@@ -73,12 +75,50 @@ BOUND_PANEL_LAYERS = 8
 BOUND_PANEL_SCENARIOS = 40
 
 
+def load_learned_agents(config: Config) -> list:
+    """Load whichever learned agents have been trained, skipping the rest.
+
+    Learned methods are optional so that the experiment still runs on a fresh
+    checkout. Each missing checkpoint is reported with the command that produces
+    it rather than silently omitted, so an incomplete results table can never be
+    mistaken for a complete one.
+    """
+    from pathlib import Path
+
+    agents = []
+
+    if Path(DEFAULT_MODEL_PATH).exists():
+        agents.append(SupervisedAgent(load_model(), config.num_devices))
+    else:
+        print(
+            f"  supervised baseline not found at {DEFAULT_MODEL_PATH}; "
+            "train it with `python -m src.training.train_supervised`"
+        )
+
+    for path, name in (
+        (DEFAULT_TABLE_PATH, "tabular_q"),
+        (Path("checkpoints") / "q_table_pooled.joblib", "tabular_q_pooled"),
+    ):
+        if Path(path).exists():
+            agent = TabularQAgent.load(path)
+            agent.name = name
+            agents.append(agent)
+        else:
+            print(
+                f"  {name} table not found at {path}; "
+                "train it with `python -m src.training.train_q_learning`"
+            )
+
+    return agents
+
+
 def collect_records(
     config: Config,
     seeds: list[int],
     num_layers: int,
     *,
     include_exhaustive: bool,
+    include_learned: bool = True,
 ) -> pd.DataFrame:
     """Run every available method over the given scenarios.
 
@@ -91,8 +131,12 @@ def collect_records(
     Returns:
         A tidy frame with one row per (method, scenario).
     """
+    agents = list(build_heuristic_agents(config))
+    if include_learned:
+        agents.extend(load_learned_agents(config))
+
     records = []
-    for agent in build_heuristic_agents(config):
+    for agent in agents:
         records.extend(evaluate_agent(config, agent, seeds, num_layers=num_layers))
 
     # The dynamic programme is exact only when neither memory nor utilisation
@@ -147,10 +191,17 @@ def run_panel(
     *,
     include_exhaustive: bool,
     panel: str,
+    include_learned: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     """Run one panel and return its raw rows, its summary and the gap reference."""
     started = time.perf_counter()
-    frame = collect_records(config, seeds, num_layers, include_exhaustive=include_exhaustive)
+    frame = collect_records(
+        config,
+        seeds,
+        num_layers,
+        include_exhaustive=include_exhaustive,
+        include_learned=include_learned,
+    )
     elapsed = time.perf_counter() - started
 
     # Three references, each honest about what it is:
@@ -325,6 +376,9 @@ def main() -> int:
     parser.add_argument("--scenarios", type=int, default=None)
     parser.add_argument("--skip-bound", action="store_true", help="skip the slow bound panel")
     parser.add_argument(
+        "--no-learned", action="store_true", help="compare heuristics and exact methods only"
+    )
+    parser.add_argument(
         "--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE"
     )
     arguments = parser.parse_args()
@@ -338,19 +392,25 @@ def main() -> int:
     print(config_summary(config))
     print(f"dynamic programming is exact for this configuration: {dp_optimal.is_exact_for(config)}")
 
+    include_learned = not arguments.no_learned
     main_frame, main_summary, main_reference = run_panel(
         config,
         seeds,
         config.workload.num_layers,
         include_exhaustive=False,
         panel="main",
+        include_learned=include_learned,
     )
+    # The learned methods are trained at the default depth, so evaluating them on
+    # the five-layer panel would measure transfer rather than placement quality.
+    # The scaling experiment addresses depth transfer deliberately.
     small_frame, small_summary, small_reference = run_panel(
         config,
         seeds,
         SMALL_PANEL_LAYERS,
         include_exhaustive=True,
         panel="small",
+        include_learned=False,
     )
 
     save_raw(main_frame, "e1_static_main", config, panel="main", reference=main_reference)

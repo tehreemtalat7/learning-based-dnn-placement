@@ -363,6 +363,8 @@ class DNNPlacementEnv(gym.Env):
         info = {
             "action_mask": feasibility,
             "layer_index": layer_index,
+            "free_memory_ratio": self.fleet.free_memory_gb() / self.fleet.total_memory_gb,
+            "utilisation": self.fleet.utilisation(),
             "scenario_seed": scenario.seed,
             "num_layers": scenario.num_layers,
             "previous_device": self._previous_device,
