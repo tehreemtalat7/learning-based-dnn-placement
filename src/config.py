@@ -129,6 +129,7 @@ class EnvironmentConfig:
     input_source_device: str
     include_transmission_energy: bool
     transmission_energy_per_mb: float
+    device_load_override: Mapping[str, Range] = field(default_factory=dict)
 
     VALID_INVALID_ACTION_MODES = ("mask", "penalty")
 
@@ -538,6 +539,17 @@ def build_config(data: Mapping[str, Any]) -> Config:
     device_names = [device.name for device in devices]
 
     environment_section = dict(_require(data, "environment", section="<root>"))
+    overrides = environment_section.get("device_load_override") or {}
+    for name in overrides:
+        if name not in device_names:
+            raise ConfigError(
+                f"environment.device_load_override names unknown device {name!r}; "
+                f"configured devices are {device_names}"
+            )
+    environment_section["device_load_override"] = {
+        name: Range.parse(value, field_name=f"environment.device_load_override.{name}")
+        for name, value in overrides.items()
+    }
     if environment_section["input_source_device"] not in device_names:
         raise ConfigError(
             f"environment.input_source_device {environment_section['input_source_device']!r} "

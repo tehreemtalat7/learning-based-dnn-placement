@@ -1,0 +1,4 @@
+agent_seed,best_validation_return,final_moving_average,training_seconds,checkpoint
+0,-0.49063399989652934,-0.5031637459439416,138.67497445794288,checkpoints/dqn_dynamic_seed0.pt
+1,-0.49036243968673554,-0.5022497442615272,177.66889312502462,checkpoints/dqn_dynamic_seed1.pt
+2,-0.4904015332059769,-0.49432872297196356,177.73544458299875,checkpoints/dqn_dynamic_seed2.pt

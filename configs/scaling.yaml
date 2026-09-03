@@ -1,0 +1,8 @@
+# Experiment 2: scaling with DNN depth.
+#
+# The scaling script overrides the depth per panel; this file fixes everything
+# else. Exhaustive search remains affordable only at the smallest depth, which is
+# the limitation the dynamic programme was added to work around.
+
+network:
+  profile: normal

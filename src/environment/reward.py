@@ -190,8 +190,10 @@ def compute_references(
         )
     )
     mean_energy_rate = float(np.mean([device.energy_per_compute for device in devices]))
-    mean_latency_ms = network.mean_link_latency_ms(layer_index=0)
-    mean_inverse_bandwidth = network.mean_inverse_bandwidth(layer_index=0)
+    # Deliberately the uncongested link characteristics: see
+    # NetworkModel.base_mean_link_latency_ms for why.
+    mean_latency_ms = network.base_mean_link_latency_ms()
+    mean_inverse_bandwidth = network.base_mean_inverse_bandwidth()
 
     compute_latency_ms = workload.total_compute * mean_inverse_speed * 1000.0
 

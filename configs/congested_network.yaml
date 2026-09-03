@@ -1,0 +1,5 @@
+# A permanently congested network: high latency, reduced bandwidth, present from
+# the first layer. Used as the "shifted" test regime in Experiment 3.
+
+network:
+  profile: congested

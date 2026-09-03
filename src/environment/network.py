@@ -131,10 +131,26 @@ class NetworkModel:
         return float(self.transfer_times_ms(source_index, data_size_mb, layer_index)[destination_index])
 
     def mean_link_latency_ms(self, layer_index: int = 0) -> float:
-        """Mean latency over all distinct links, used for cost references."""
+        """Mean latency over all distinct links under the conditions at a layer."""
         latency_ms, _ = self.conditions_at(layer_index)
         off_diagonal = ~np.eye(self.num_devices, dtype=bool)
         return float(latency_ms[off_diagonal].mean())
+
+    def base_mean_link_latency_ms(self) -> float:
+        """Mean link latency ignoring any congestion event.
+
+        Cost references are built from the *uncongested* network on purpose. If
+        they used the degraded values instead, a congestion event would inflate
+        the normaliser by exactly as much as it inflates the measurement, and the
+        objective would report congestion as costing nothing.
+        """
+        off_diagonal = ~np.eye(self.num_devices, dtype=bool)
+        return float(self.base_latency_ms[off_diagonal].mean())
+
+    def base_mean_inverse_bandwidth(self) -> float:
+        """Mean of ``1 / bandwidth`` ignoring any congestion event."""
+        off_diagonal = ~np.eye(self.num_devices, dtype=bool)
+        return float((1.0 / self.base_bandwidth_mbps[off_diagonal]).mean())
 
     def mean_link_bandwidth_mbps(self, layer_index: int = 0) -> float:
         """Mean bandwidth over all distinct links, used for reporting."""

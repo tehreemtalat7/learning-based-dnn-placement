@@ -10,12 +10,10 @@ placement strategies.
 > reported here is produced by the scripts in this repository from the raw CSVs
 > in `results/raw/`; nothing is quoted from elsewhere or estimated by hand.
 
-**Status:** the simulation environment, the heuristic baselines, the exact
-baselines (exhaustive search and dynamic programming), the supervised Random
-Forest baseline and tabular Q-learning are complete, along with the static
-comparison experiment. The deep Q-network and the dynamic-condition experiments
-are being added phase by phase; the results sections below are populated from
-generated data as each phase lands.
+**Status:** the simulation environment, every baseline (heuristic, exact,
+supervised and tabular), the deep Q-network and Experiments 1 to 4 are complete.
+Ablations and the final write-up are still to come; the results sections below
+are populated from generated data as each phase lands.
 
 ---
 
@@ -176,12 +174,16 @@ asymmetry.
 
 ## 7. Experimental setup
 
-* 300 held-out evaluation scenarios drawn from a seed pool **disjoint** from the
-  training pool, so no learning method is ever evaluated on a scenario it saw.
+* Scenario seeds come from **three disjoint pools**: training, validation and
+  evaluation. Training draws from the first, checkpoint selection and progress
+  checks use the second, and every reported number comes from the third — so no
+  decision about a model is ever made using the data its results are reported on.
+  The configuration refuses to load if the pools overlap.
 * Every method is evaluated on the *same* scenario seeds, making all comparisons
   paired.
 * Three training seeds per learning method; results are reported as mean with a
-  95 % confidence interval.
+  95 % confidence interval, and `experiments/dqn_seed_spread.py` reports every
+  seed rather than only the one that validated best.
 * Memory constraints genuinely bind: with the default configuration a device is
   masked out at some point in roughly 31 % of episodes under objective-aware
   greedy placement.
@@ -199,15 +201,16 @@ them.*
 
 | Method | Objective | Latency (ms) | Energy | Gap vs best known | Decision time / layer |
 |---|---:|---:|---:|---:|---:|
-| Random | 1.181 | 10 411 | 27.8 | 163.03 % | 6 µs |
-| Round robin | 0.992 | 8 325 | 25.8 | 119.62 % | 1 µs |
-| Greedy (fastest device) | 0.696 | 1 441 | 46.8 | 54.42 % | 3 µs |
-| Greedy (communication-aware) | 0.530 | 1 128 | 40.1 | 17.08 % | 3 µs |
-| **Greedy (objective-aware)** | **0.458** | 2 728 | 24.6 | **0.37 %** | 3 µs |
-| Random Forest (supervised) | 0.461 | 2 969 | 23.3 | 1.00 % | 5 063 µs |
-| Tabular Q (pooled) | 0.480 | 2 310 | 28.7 | 5.57 % | 15 µs |
-| Tabular Q (single scenario) | 0.586 | 3 114 | 33.2 | 29.12 % | 15 µs |
-| DP (relaxed problem) | 0.473 | 3 573 | 20.9 | 3.26 % | 33 µs |
+| Random | 1.181 | 10 411 | 27.8 | 163.22 % | 6 µs |
+| Round robin | 0.992 | 8 325 | 25.8 | 119.79 % | 2 µs |
+| Greedy (fastest device) | 0.696 | 1 441 | 46.8 | 54.53 % | 3 µs |
+| Greedy (communication-aware) | 0.530 | 1 128 | 40.1 | 17.17 % | 4 µs |
+| **Greedy (objective-aware)** | **0.458** | 2 728 | 24.6 | **0.45 %** | 3 µs |
+| Random Forest (supervised) | 0.461 | 2 969 | 23.3 | 1.08 % | 6 034 µs |
+| Tabular Q (pooled) | 0.480 | 2 310 | 28.7 | 5.66 % | 16 µs |
+| Tabular Q (single scenario) | 0.586 | 3 114 | 33.2 | 29.22 % | 16 µs |
+| **DQN** | **0.456** | 2 562 | 25.5 | **0.07 %** | 37 µs |
+| DP (relaxed problem) | 0.473 | 3 573 | 20.9 | 3.35 % | 33 µs |
 
 No method records a memory violation: action masking makes every placement
 feasible by construction, so the repair pass the previous project needed has no
@@ -292,6 +295,188 @@ much of the loss (0.480) by learning a good *average* placement pattern, but it
 cannot condition on the scenario in front of it. That is precisely the gap
 function approximation exists to close.
 
+### Does reinforcement learning help? A little, and not everywhere
+
+The DQN is the cheapest method in the table, at 0.456 against 0.458 for the
+strongest heuristic — **0.35 % cheaper on average**. All three training seeds
+land in the same place:
+
+| Seed | Objective (95 % CI) | vs greedy | Scenarios won | p (paired Wilcoxon) |
+|---|---|---:|---:|---:|
+| 0 | 0.4564 [0.4508, 0.4620] | −0.35 % | 25 % | 0.0022 |
+| 1 | 0.4566 [0.4510, 0.4622] | −0.32 % | 27 % | 0.069 |
+| 2 | 0.4565 [0.4509, 0.4621] | −0.35 % | 30 % | 0.0093 |
+
+Seed variance is negligible here — the spread across seeds is 0.04 % of the
+objective, far smaller than the gap between methods — but **one of the three
+seeds does not reach significance at the 5 % level**, and that is reported rather
+than dropped.
+
+The average hides something more interesting. Comparing placements scenario by
+scenario:
+
+| | Scenarios | Mean effect | Largest |
+|---|---:|---:|---:|
+| Identical placement to greedy | 182 (61 %) | — | — |
+| DQN cheaper | 74 (25 %) | −1.61 % | −21.2 % |
+| DQN more expensive | 44 (15 %) | +0.30 % | +1.43 % |
+
+So the agent agrees with the heuristic on most problems, and its advantage comes
+from a **minority of scenarios where myopia is expensive**, where it wins by far
+more than it loses elsewhere. On the fifteen scenarios where it gains most it
+cuts end-to-end latency by 39 %, accepting 15 % more energy and 24 % more
+communication to do it, and makes 60 % fewer device switches — it commits to a
+fast device earlier and pays a small, immediate cost to avoid a later blow-up.
+That is precisely the trade a one-layer-lookahead heuristic cannot make, and it
+is the clearest evidence in this project that the sequential formulation is doing
+real work.
+
+It is also a **small** effect, and it should be read as such. In the static
+setting the strongest heuristic is already within 0.26 % of the exhaustive
+optimum, so there was never much room. The claim supported by this experiment is
+"reinforcement learning matches the best heuristic and improves slightly on it by
+handling a hard minority of cases", not "reinforcement learning solves DNN
+placement". Whether the advantage grows when conditions change is what
+Experiments 3 and 4 are for.
+
+Two practical notes. Validation return plateaus by roughly 30 000 environment
+steps (`fig02`), so the configured 150 000 is generous — a shorter budget would
+reach the same policy. And a decision costs 37 µs against 3 µs for greedy: an
+order of magnitude more, but a whole 10-layer placement still takes ~370 µs
+against the 83.7 s exhaustive search needs at this depth — a factor of about
+230 000.
+
+### Experiment 2 — scaling with DNN depth
+
+Weighted objective at each depth, 300 held-out scenarios per depth. `DQN` was
+trained only on 10-layer networks; `DQN (mixed depths)` on a mixture.
+
+| Method | 5 layers | 10 layers | 20 layers | 30 layers |
+|---|---:|---:|---:|---:|
+| Greedy (communication-aware) | 0.488 | 0.530 | 0.562 | 0.579 |
+| Greedy (objective-aware) | 0.403 | 0.458 | 0.510 | 0.546 |
+| Random Forest (supervised) | 0.404 | 0.461 | 0.519 | 0.667 |
+| **DQN** | 0.403 | 0.456 | 0.508 | 0.542 |
+| DQN (mixed depths) | 0.403 | 0.459 | 0.511 | 0.551 |
+| Tabular Q (pooled) | 0.407 | 0.480 | 0.878 | 2.279 |
+| DP (relaxed problem) | 0.403 | 0.473 | 1.002 | 1.659 |
+| Random | 1.020 | 1.181 | 2.055 | 3.151 |
+
+Three things happen as the DNN gets deeper.
+
+**The dynamic programme collapses.** From 0.403 at five layers to 1.659 at
+thirty — worse than the fastest-device heuristic, and worse than random
+placement was at five layers. It is exact for the relaxed problem in which
+devices never slow down, and the error in that relaxation compounds with every
+layer: it keeps loading the fast devices that its model says are still fast. This
+is the clearest possible vindication of labelling it "DP (relaxed problem)"
+rather than "optimal", and the strongest argument in the project for learning a
+policy in the real environment rather than solving a tractable approximation of
+it.
+
+**Behaviour cloning degrades.** The Random Forest tracks the heuristics to twenty
+layers and then breaks down at thirty (0.667 against 0.546). It was trained on
+10-layer demonstrations, and thirty-layer episodes take it far outside the state
+distribution it was shown.
+
+**The learned policy transfers.** The DQN is the cheapest method at every depth,
+having been trained only on 10-layer networks — so this is generalisation, not
+memorisation: the fixed-width state vector carries the shape of the workload
+rather than its length.
+
+| Depth | Greedy | DQN | Margin | Scenarios won | p |
+|---:|---:|---:|---:|---:|---:|
+| 5 | 0.4030 | 0.4028 | +0.04 % | 4 % | 0.48 |
+| 10 | 0.4583 | 0.4564 | +0.35 % | 25 % | 0.0022 |
+| 20 | 0.5097 | 0.5077 | +0.34 % | 38 % | 0.17 |
+| 30 | 0.5459 | 0.5419 | +0.66 % | 46 % | 0.0029 |
+
+The margin is larger at thirty layers than at five, but it is **not monotone and
+not significant at every depth**: the twenty-layer margin is no larger than the
+ten-layer one and does not reach significance (p = 0.17), and at five layers the
+two methods are indistinguishable. The trend that does hold cleanly is the win
+rate — 4 % → 25 % → 38 % → 46 % — so as the DNN deepens the agent departs from
+the heuristic more often and is right to. On this evidence "the advantage grows
+with depth" is a reasonable reading, not a demonstrated one.
+
+Training on mixed depths did **not** help: it is slightly worse at every depth
+than the policy trained on a single size, which is worth reporting precisely
+because it contradicts the obvious expectation.
+
+At five layers every method except random and tabular Q produces *the same
+placement* — all layers on the edge server — so that panel discriminates between
+nothing. Depth is what makes this problem interesting.
+
+### Experiment 3 — dynamic network conditions
+
+Identical held-out scenarios under three regimes. `DQN` was trained only on the
+normal network, so its congested and dynamic columns measure **robustness to a
+shift it never saw**; `DQN (dynamic-trained)` saw the dynamic distribution.
+
+| Method | Normal | Congested | Congested change | Dynamic change |
+|---|---:|---:|---:|---:|
+| Random | 1.181 | 2.027 | +71.7 % | +20.6 % |
+| Round robin | 0.992 | 1.628 | +64.2 % | +22.7 % |
+| Greedy (fastest device) | 0.696 | 1.025 | +47.2 % | +10.8 % |
+| Greedy (objective-aware) | 0.458 | 0.541 | +18.0 % | +3.6 % |
+| Random Forest (supervised) | 0.461 | 0.501 | +8.6 % | +2.2 % |
+| DQN | 0.456 | 0.494 | +8.2 % | +1.9 % |
+| Tabular Q (pooled) | 0.480 | 0.516 | +7.6 % | +1.9 % |
+| DQN (dynamic-trained) | 0.457 | 0.490 | +7.2 % | +1.6 % |
+| DP (relaxed problem) | 0.473 | 0.505 | +6.9 % | +1.7 % |
+| Greedy (communication-aware) | 0.530 | 0.540 | +1.8 % | -0.7 % |
+
+Congestion separates the methods far more sharply than the static setting did.
+The strongest heuristic degrades by 18.0 %; the DQN by 8.2 %, less than half as
+much, despite never having been trained on a congested network. Under congestion
+it beats objective-aware greedy by **6.72 %** (paired Wilcoxon, p = 6.2 × 10⁻⁶)
+against 0.35 % in the normal regime — the advantage is roughly twenty times
+larger where conditions are harder.
+
+Training on the dynamic distribution helps further, but modestly: it wins **55 %
+of congested scenarios against the normal-trained agent's 36 %**, at 7.43 %
+better than greedy (p = 2.4 × 10⁻²³). Most of the robustness is already present
+without ever seeing congestion, which suggests the policy learned something
+structural — keep consecutive layers together when moving them is expensive —
+rather than memorising a regime.
+
+One row deserves care rather than celebration. Communication-aware greedy
+degrades least of all (+1.8 %), because it already refuses to move data. It is
+simply *starting from a much worse place* (0.530), and a method that is bad
+everywhere is not robust — it is uniformly mediocre. Degradation percentages have
+to be read next to the level they degrade from.
+
+### Experiment 4 — device load
+
+`gpu_server` background utilisation is swept from 20 % to 80 % while the
+workload, the network and the other devices are held fixed.
+
+| Method | Layers still on the loaded GPU | Weighted objective |
+|---|---|---|
+| Greedy (objective-aware) | 32% → 18% → 1% | 0.458 → 0.469 → 0.461 |
+| DQN | 37% → 21% → 2% | 0.456 → 0.468 → 0.461 |
+| Random Forest (supervised) | 25% → 18% → 11% | 0.461 → 0.471 → 0.483 |
+| DP (relaxed problem) | 18% → 7% → 0% | 0.472 → 0.482 → 0.468 |
+| Tabular Q (pooled) | 50% → 50% → 50% | 0.479 → 0.505 → 0.611 |
+| Round robin | 24% → 24% → 24% | 0.992 → 0.991 → 0.989 |
+| Random | 25% → 25% → 25% | 1.181 → 1.178 → 1.169 |
+
+The share column is the direct test of adaptivity, and it separates the methods
+cleanly. Every method that can see utilisation routes work away as the GPU fills:
+greedy 32 % → 1 %, the DQN 37 % → 2 %, the dynamic programme 18 % → 0 %. Every
+method that cannot keeps feeding a device that can no longer do the work — random
+and round-robin by construction, and **tabular Q at a flat 50 %**, because
+utilisation is not part of its discrete state at all. Its objective pays for it,
+rising 28 % across the sweep while the adaptive methods stay flat.
+
+The Random Forest sits in between (25 % → 11 %): it can see utilisation, but it
+imitates decisions taken on a distribution where the GPU was rarely this loaded.
+
+Note the non-monotonic middle column: every method does slightly *worse* at 50 %
+than at 80 %. At 80 % the GPU is so slow that it is obviously the wrong choice;
+at 50 % it is a genuinely marginal one, and marginal choices are where methods
+lose ground.
+
 ### Cost of the optimal reference
 
 | Depth | Candidate placements | Exhaustive search | Dynamic programming |
@@ -311,10 +496,18 @@ built from the CSVs in `results/`, never hand-authored.
 
 | Figure | Content |
 |---|---|
+| `fig01_dqn_training_return_static.png` | DQN episode return and its moving average during training |
+| `fig02_dqn_validation_return_static.png` | DQN return on validation scenarios, all three seeds |
 | `fig03_latency_by_method.png` | Mean end-to-end latency by method |
 | `fig04_energy_by_method.png` | Mean energy consumption by method |
 | `fig05_objective_by_method.png` | Mean weighted objective by method |
 | `fig06_runtime_by_method.png` | Placement decision time per layer (log scale) |
+| `fig07_objective_vs_depth.png` | Placement quality against DNN depth (log scale) |
+| `fig07b_gap_vs_depth.png` | Distance from the best placement found, by depth |
+| `fig07c_runtime_vs_depth.png` | Time to place one DNN against depth, all methods |
+| `fig08_network_conditions.png` | Performance under normal, congested and dynamic networks |
+| `fig09_device_load.png` | Performance as one device's background load rises |
+| `fig09b_device_load_share.png` | Share of layers still sent to the loaded device |
 | `fig10_optimality_gap.png` | Optimality gap against exhaustive search, 5-layer DNNs |
 | `fig11_tabular_training_single_scenario.png` | Tabular Q-learning converging onto the exact solution |
 | `fig11_tabular_training_pooled.png` | The same table trained across scenarios |

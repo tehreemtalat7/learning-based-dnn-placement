@@ -175,18 +175,38 @@ class TestObjective:
             assert scenario.references.communication_ms > 0
         assert large.references.energy > small.references.energy
 
-    def test_references_use_uncongested_conditions(self, config):
-        """Congestion must raise the objective rather than be normalised away."""
-        calm = sample_scenario(config, 9_000_123)
+    def test_congestion_raises_the_objective_rather_than_being_normalised_away(self, config):
+        """The property, not a proxy for it.
+
+        References are built from the uncongested network. Building them from the
+        degraded network instead would inflate the normaliser by as much as the
+        measurement, and congestion would appear to cost nothing -- which is
+        exactly the bug this asserts against.
+        """
         congested_config = load_config(overrides=["network.profile=congested"])
+        worse = 0
+        for seed in range(9_000_100, 9_000_140):
+            calm = sample_scenario(config, seed)
+            congested = sample_scenario(congested_config, seed)
+            assert congested.has_congestion
+            placement = tuple(index % calm.num_devices for index in range(calm.num_layers))
+
+            calm_result = evaluate_placement(calm, placement, config)
+            congested_result = evaluate_placement(congested, placement, congested_config)
+            assert congested_result.communication_latency_ms > calm_result.communication_latency_ms
+            if congested_result.objective > calm_result.objective:
+                worse += 1
+        assert worse == 40, "congestion must make an identical placement score worse"
+
+    def test_references_ignore_the_congestion_event(self, config):
+        congested_config = load_config(overrides=["network.profile=congested"])
+        calm = sample_scenario(config, 9_000_123)
         congested = sample_scenario(congested_config, 9_000_123)
         assert congested.has_congestion
-        placement = tuple(range(len(calm.workload)))  # forces switches
-        placement = tuple(index % calm.num_devices for index in placement)
-        calm_result = evaluate_placement(calm, placement, config)
-        congested_result = evaluate_placement(congested, placement, congested_config)
-        assert congested_result.communication_latency_ms > calm_result.communication_latency_ms
-
+        # Same seed, same links before congestion is applied, so identical references.
+        assert congested.references.communication_ms == pytest.approx(
+            calm.references.communication_ms, rel=1e-9
+        )
 
 class TestEvaluatePlacement:
     def test_single_device_placement_has_no_communication_after_the_input(self, config):

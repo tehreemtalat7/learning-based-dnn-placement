@@ -185,6 +185,13 @@ class DeviceFleet:
 def sample_device_profiles(config, rng: np.random.Generator) -> tuple[DeviceProfile, ...]:
     """Draw one concrete device per configured archetype.
 
+    ``environment.device_load_override`` replaces the sampled background load of
+    named devices. Every other quantity is still drawn from the same stream, so
+    sweeping one device's load leaves the rest of the scenario distribution --
+    including the workload and the network -- untouched. That is what makes the
+    device-load experiment a controlled comparison rather than a different
+    experiment at every load level.
+
     Args:
         config: The loaded :class:`~src.config.Config`.
         rng: Generator used for all device draws.
@@ -193,16 +200,27 @@ def sample_device_profiles(config, rng: np.random.Generator) -> tuple[DeviceProf
         Sampled devices in the order the archetypes are configured, which is
         also the action-index order.
     """
-    return tuple(
-        DeviceProfile(
-            name=archetype.name,
-            compute_capacity=archetype.compute_capacity.sample(rng),
-            memory_gb=archetype.memory_gb.sample(rng),
-            energy_per_compute=archetype.energy_per_compute.sample(rng),
-            base_utilisation=archetype.base_utilisation.sample(rng),
+    overrides = config.environment.device_load_override
+    profiles = []
+    for archetype in config.devices:
+        # Draw every value regardless, so that overriding one device cannot
+        # shift the random stream seen by the others.
+        capacity = archetype.compute_capacity.sample(rng)
+        memory = archetype.memory_gb.sample(rng)
+        energy = archetype.energy_per_compute.sample(rng)
+        load = archetype.base_utilisation.sample(rng)
+        if archetype.name in overrides:
+            load = overrides[archetype.name].sample(rng)
+        profiles.append(
+            DeviceProfile(
+                name=archetype.name,
+                compute_capacity=capacity,
+                memory_gb=memory,
+                energy_per_compute=energy,
+                base_utilisation=load,
+            )
         )
-        for archetype in config.devices
-    )
+    return tuple(profiles)
 
 
 __all__ = ["MEMORY_TOLERANCE_GB", "DeviceFleet", "DeviceProfile", "sample_device_profiles"]

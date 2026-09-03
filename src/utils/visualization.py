@@ -59,6 +59,12 @@ SLOT_COLOURS: tuple[str, ...] = (
 
 METHOD_SLOTS: dict[str, int] = {
     "dqn": 0,
+    "dqn_mixed": 5,
+    # Slot 4 is shared with `random`, which never appears in the same figure as
+    # the dynamic-trained agent. `tests.test_visualization` asserts that no two
+    # methods plotted together share a colour, so the constraint is enforced
+    # rather than remembered.
+    "dqn_dynamic": 4,
     "greedy_objective_aware": 1,
     "supervised_rf": 2,
     "greedy_communication_aware": 3,
@@ -320,6 +326,25 @@ def dots_by_method(
     return save(figure, name)
 
 
+def _spread_labels(entries: list[tuple[float, str, str]], span: float) -> list[tuple[float, str, str]]:
+    """Nudge overlapping endpoint labels apart, preserving their order.
+
+    Direct labels are the second identity channel, so they have to stay legible
+    when several series converge -- which is exactly what happens here once the
+    strong methods land within a percent of each other.
+    """
+    minimum = span * 0.045
+    ordered = sorted(entries, key=lambda item: item[0])
+    positions = [value for value, _label, _colour in ordered]
+    for index in range(1, len(positions)):
+        if positions[index] - positions[index - 1] < minimum:
+            positions[index] = positions[index - 1] + minimum
+    return [
+        (positions[index], label, colour)
+        for index, (_value, label, colour) in enumerate(ordered)
+    ]
+
+
 def lines_by_x(
     summary: pd.DataFrame,
     x_column: str,
@@ -334,47 +359,84 @@ def lines_by_x(
 ) -> Path:
     """Line chart of one metric against a numeric axis, one line per method.
 
-    Every series gets its own marker shape as well as its own colour, and the
-    final point of each line is labelled directly, so the chart stays readable
-    without relying on colour alone.
+    Every series gets its own marker shape as well as its own colour, and its
+    final point is labelled directly, so identity never rests on colour alone.
+    Labels are nudged apart when series converge, and the legend sits below the
+    axes rather than over the data.
     """
     apply_style()
     column = f"{metric}_mean"
     frame = summary[summary[column].notna()].copy()
     chosen = list(methods) if methods is not None else sort_methods(frame["method"])
 
-    figure, axes = plt.subplots(figsize=(7.6, 4.6))
+    figure, axes = plt.subplots(figsize=(8.0, 5.0))
     right_edge = frame[x_column].max()
+
+    endpoints: list[tuple[float, str, str]] = []
+    plotted = 0
     for method in chosen:
         series = frame[frame["method"] == method].sort_values(x_column)
         if series.empty:
             continue
+        plotted += 1
+        colour = colour_for(method)
         axes.plot(
             series[x_column],
             series[column],
-            color=colour_for(method),
+            color=colour,
             marker=marker_for(method),
             markeredgecolor=SURFACE,
             markeredgewidth=1.5,
             label=label_for(method),
         )
         last = series.iloc[-1]
-        axes.annotate(
-            label_for(method),
-            xy=(last[x_column], last[column]),
-            xytext=(6, 0),
-            textcoords="offset points",
-            va="center",
-            fontsize=8.5,
-            color=colour_for(method),
-        )
+        if last[x_column] == right_edge:
+            endpoints.append((float(last[column]), label_for(method), colour))
+
+    if log_y:
+        axes.set_yscale("log")
+
+    if endpoints:
+        values = [value for value, _label, _colour in endpoints]
+        if log_y:
+            import numpy as np
+
+            logged = [(float(np.log10(max(value, 1e-12))), label, colour)
+                      for value, label, colour in endpoints]
+            span = max(v for v, _, _ in logged) - min(v for v, _, _ in logged) or 1.0
+            for position, label, colour in _spread_labels(logged, span):
+                axes.annotate(
+                    label,
+                    xy=(right_edge, 10**position),
+                    xytext=(8, 0),
+                    textcoords="offset points",
+                    va="center",
+                    fontsize=8.5,
+                    color=colour,
+                )
+        else:
+            span = (max(values) - min(values)) or 1.0
+            for position, label, colour in _spread_labels(endpoints, span):
+                axes.annotate(
+                    label,
+                    xy=(right_edge, position),
+                    xytext=(8, 0),
+                    textcoords="offset points",
+                    va="center",
+                    fontsize=8.5,
+                    color=colour,
+                )
 
     axes.set_xlabel(x_label if x_label is not None else x_column.replace("_", " "))
     axes.set_ylabel(METRIC_LABELS.get(metric, metric))
-    if log_y:
-        axes.set_yscale("log")
-    axes.set_xlim(right=right_edge * 1.24)
-    axes.legend(loc="upper left", ncols=2)
+    axes.set_xlim(right=right_edge * 1.30)
+    # Below the axes, so the legend never sits on top of the data.
+    axes.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.16),
+        ncols=min(plotted, 4),
+        columnspacing=1.6,
+    )
     _finish(axes, title=title, subtitle=subtitle, x_grid=False, y_grid=True)
     return save(figure, name)
 
@@ -515,10 +577,13 @@ def grouped_bars(
             yerr=errors,
             error_kw={"ecolor": TEXT_MUTED, "elinewidth": 1.0, "capsize": 2.5},
         )
-        for bar, value in zip(bars, values, strict=True):
+        # Labels sit above the top of the error bar, not the top of the bar, so
+        # they never collide with the interval they are meant to accompany.
+        ceiling = max(highs) if highs else 1.0
+        for bar, value, high in zip(bars, values, highs, strict=True):
             axes.text(
                 bar.get_x() + bar.get_width() / 2,
-                bar.get_height(),
+                high + ceiling * 0.02,
                 value_format.format(value),
                 ha="center",
                 va="bottom",
@@ -531,7 +596,7 @@ def grouped_bars(
     axes.set_xticklabels([str(group).replace("_", " ") for group in groups])
     axes.set_xlabel(x_label if x_label is not None else group_column.replace("_", " "))
     axes.set_ylabel(METRIC_LABELS.get(metric, metric))
-    axes.margins(y=0.18)
+    axes.margins(y=0.30 if total > 3 else 0.20)
     axes.legend(loc="upper left", ncols=min(len(chosen), 3))
     _finish(axes, title=title, subtitle=subtitle, x_grid=False, y_grid=True)
     return save(figure, name)

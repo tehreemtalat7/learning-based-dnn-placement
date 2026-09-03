@@ -35,6 +35,8 @@ METHOD_LABELS: dict[str, str] = {
     "tabular_q": "Tabular Q (single scenario)",
     "tabular_q_pooled": "Tabular Q (pooled)",
     "dqn": "DQN",
+    "dqn_mixed": "DQN (mixed depths)",
+    "dqn_dynamic": "DQN (dynamic-trained)",
     "dp_relaxed": "DP (relaxed problem)",
     "dp_exact": "Dynamic programming (optimal)",
     "dp_lower_bound": "DP lower bound",
@@ -57,6 +59,9 @@ METRIC_LABELS: dict[str, str] = {
     "optimality_gap_pct": "Optimality gap (%)",
     "gap_vs_best_pct": "Gap vs best known placement (%)",
     "gap_vs_dp_bound_pct": "Gap vs DP lower bound (%)",
+    "loaded_device_share": "Share of layers on the loaded device",
+    "decision_runtime_s": "Time to place one DNN (s)",
+    "episode_return": "Episode return",
 }
 
 

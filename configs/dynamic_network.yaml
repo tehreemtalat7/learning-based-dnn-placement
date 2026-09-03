@@ -1,0 +1,11 @@
+# Experiment 3: dynamic network conditions.
+#
+# Congestion may be present from the first layer or may begin part way through
+# an episode, so a policy trained here has to cope with link characteristics
+# changing while it is still placing layers. Every method sees the current link
+# state in its observation, so the greedy heuristics are reactive too -- any
+# advantage the learned policy shows has to come from anticipation, not from
+# information the heuristics lack.
+
+network:
+  profile: dynamic

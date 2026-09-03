@@ -1,0 +1,9 @@
+# Experiment 4: dynamic device load.
+#
+# The experiment script sweeps one device's background utilisation through a
+# series of levels using environment.device_load_override, leaving every other
+# part of the scenario distribution untouched. This file only fixes the network
+# so that the load sweep is the single thing that varies.
+
+network:
+  profile: normal

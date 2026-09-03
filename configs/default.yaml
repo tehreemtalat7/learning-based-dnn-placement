@@ -60,6 +60,11 @@ environment:
   # metric stays directly comparable with the previous project's model.
   include_transmission_energy: false
   transmission_energy_per_mb: 0.02
+  # Replaces the sampled background load of named devices, which is how the
+  # device-load experiment sweeps one device from lightly to heavily loaded
+  # without touching any other part of the distribution. Example:
+  #   --set environment.device_load_override.gpu_server=[0.8, 0.8]
+  device_load_override: {}
 
 # Four heterogeneous device archetypes. Concrete values are sampled per scenario.
 #

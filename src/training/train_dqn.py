@@ -51,6 +51,7 @@ def train_one_seed(
     seed: int,
     *,
     checkpoint_path: Path,
+    num_layers: int | list[int] | None = None,
     quiet: bool = False,
 ) -> tuple[DQNAgent, pd.DataFrame]:
     """Train a single agent and return it alongside its training curve.
@@ -59,6 +60,9 @@ def train_one_seed(
         config: The configuration in force.
         seed: Seed for parameters, exploration, replay and scenario sampling.
         checkpoint_path: Where to write the best-validation checkpoint.
+        num_layers: DNN depth to train on. A list samples a depth per episode,
+            which is how a single policy is trained to place networks of several
+            sizes; the state vector has a fixed width, so nothing else changes.
         quiet: Suppress per-evaluation logging.
 
     Returns:
@@ -67,7 +71,7 @@ def train_one_seed(
     settings = config.dqn
     seed_everything(seed)
 
-    env = DNNPlacementEnv(config, seed=seed)
+    env = DNNPlacementEnv(config, num_layers=num_layers, seed=seed)
     agent = DQNAgent(
         observation_size(config.num_devices), config.num_devices, settings, seed=seed
     )
@@ -153,6 +157,13 @@ def main() -> int:
     parser.add_argument("--output", default=str(DEFAULT_CHECKPOINT_PATH))
     parser.add_argument("--tag", default="static", help="suffix for result files")
     parser.add_argument(
+        "--layers",
+        type=int,
+        nargs="*",
+        default=None,
+        help="DNN depth(s) to train on; several values sample one per episode",
+    )
+    parser.add_argument(
         "--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE"
     )
     arguments = parser.parse_args()
@@ -169,13 +180,18 @@ def main() -> int:
         f"steps per seed: {config.dqn.total_steps:,}, seeds: {seeds}, "
         f"double DQN: {config.dqn.double_dqn}, discount: {config.dqn.discount}"
     )
+    if arguments.layers:
+        print(f"training depths: {arguments.layers}")
 
     curves = []
     summaries = []
     for seed in seeds:
         print(f"\nseed {seed}")
         path = output.with_name(f"{output.stem}_seed{seed}{output.suffix}")
-        agent, curve = train_one_seed(config, seed, checkpoint_path=path)
+        depths = arguments.layers
+        if depths is not None:
+            depths = depths[0] if len(depths) == 1 else depths
+        agent, curve = train_one_seed(config, seed, checkpoint_path=path, num_layers=depths)
         curves.append(curve)
         best = float(curve["best_validation_return"].iloc[0])
         summaries.append(

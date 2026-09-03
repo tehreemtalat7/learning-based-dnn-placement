@@ -26,6 +26,9 @@ from src.utils.metrics import summarise_by_method
 EXPERIMENTS: tuple[tuple[str, list[str]], ...] = (
     ("experiments.static_experiment", []),
     ("experiments.dqn_seed_spread", []),
+    ("experiments.scaling_experiment", []),
+    ("experiments.dynamic_network_experiment", []),
+    ("experiments.dynamic_device_experiment", []),
 )
 
 
@@ -94,6 +97,18 @@ def rebuild_figures() -> list[str]:
             )
         )
 
+    for name, builder in (
+        ("e2_scaling", _rebuild_scaling_figures),
+        ("e3_dynamic_network", _rebuild_network_figures),
+        ("e4_device_load", _rebuild_device_load_figures),
+    ):
+        try:
+            frame = load_raw(name)
+        except FileNotFoundError:
+            print(f"  no {name} results; skipping its figures")
+            continue
+        written.extend(builder(frame))
+
     for mode in ("single_scenario", "pooled"):
         try:
             curve = load_raw(f"e1_tabular_curve_{mode}")
@@ -112,6 +127,97 @@ def rebuild_figures() -> list[str]:
         )
 
     return written
+
+
+def _rebuild_scaling_figures(frame) -> list[str]:
+    """Rebuild the depth-scaling figures from saved rows."""
+    from experiments.scaling_experiment import PLOTTED_METHODS, SCALING_METRICS
+
+    summary = summarise_by_method(frame, SCALING_METRICS, group_columns=("num_layers",))
+    save_processed(summary, "e2_scaling_summary")
+    return [
+        str(
+            visualization.lines_by_x(
+                summary, "num_layers", "objective", "fig07_objective_vs_depth",
+                title="Placement quality as the DNN gets deeper",
+                subtitle="Weighted objective on held-out scenarios, log scale; "
+                "1.0 is the cost of random placement",
+                x_label="Number of DNN layers", methods=PLOTTED_METHODS, log_y=True,
+            )
+        ),
+        str(
+            visualization.lines_by_x(
+                summary, "num_layers", "gap_vs_best_pct", "fig07b_gap_vs_depth",
+                title="Distance from the best placement found, by depth",
+                subtitle="Log scale; lower is better",
+                x_label="Number of DNN layers",
+                methods=[m for m in PLOTTED_METHODS if m != "random"], log_y=True,
+            )
+        ),
+        str(
+            visualization.lines_by_x(
+                summary, "num_layers", "decision_runtime_s", "fig07c_runtime_vs_depth",
+                title="Time to place a whole DNN",
+                subtitle="Log scale. Exhaustive search stops where it is no longer affordable",
+                x_label="Number of DNN layers",
+                methods=(*PLOTTED_METHODS, "exhaustive"), log_y=True,
+            )
+        ),
+    ]
+
+
+def _rebuild_network_figures(frame) -> list[str]:
+    """Rebuild the network-regime figure from saved rows."""
+    from experiments.dynamic_network_experiment import (
+        PLOTTED_METHODS,
+        REGIMES,
+        REPORTED_METRICS,
+    )
+
+    summary = summarise_by_method(frame, REPORTED_METRICS, group_columns=("regime",))
+    save_processed(summary, "e3_dynamic_network_summary")
+    return [
+        str(
+            visualization.grouped_bars(
+                summary, "regime", "objective", "fig08_network_conditions",
+                title="Placement quality under three network regimes",
+                subtitle="Weighted objective on identical held-out scenarios; lower is better",
+                x_label="Network regime", methods=PLOTTED_METHODS,
+                group_order=REGIMES, value_format="{:,.3f}",
+            )
+        )
+    ]
+
+
+def _rebuild_device_load_figures(frame) -> list[str]:
+    """Rebuild the device-load figures from saved rows."""
+    from experiments.dynamic_device_experiment import PLOTTED_METHODS, REPORTED_METRICS
+
+    levels = sorted(set(frame["load_level"]))
+    summary = summarise_by_method(
+        frame, (*REPORTED_METRICS, "loaded_device_share"), group_columns=("load_level",)
+    )
+    save_processed(summary, "e4_device_load_summary")
+    return [
+        str(
+            visualization.grouped_bars(
+                summary, "load_level", "objective", "fig09_device_load",
+                title="Placement quality as device load rises",
+                subtitle="Weighted objective on identical held-out scenarios; lower is better",
+                x_label="Background utilisation of the loaded device",
+                methods=PLOTTED_METHODS, group_order=levels, value_format="{:,.3f}",
+            )
+        ),
+        str(
+            visualization.grouped_bars(
+                summary, "load_level", "loaded_device_share", "fig09b_device_load_share",
+                title="Share of layers still sent to the loaded device",
+                subtitle="A method that adapts should route work away as the device fills up",
+                x_label="Background utilisation of the loaded device",
+                methods=PLOTTED_METHODS, group_order=levels, value_format="{:,.2f}",
+            )
+        ),
+    ]
 
 
 def main() -> int:
@@ -133,8 +239,17 @@ def main() -> int:
             print(f"  {path}")
         return 0
 
-    extra = ["--scenarios", "50", "--skip-bound"] if arguments.quick else []
-    failures = [module for module, args in EXPERIMENTS if not run_module(module, args + extra)]
+    failures = []
+    for module, args in EXPERIMENTS:
+        extra = list(args)
+        if arguments.quick:
+            extra += ["--scenarios", "50"]
+            if module.endswith("static_experiment"):
+                extra.append("--skip-bound")
+            if module.endswith("scaling_experiment"):
+                extra += ["--depths", "5", "10"]
+        if not run_module(module, extra):
+            failures.append(module)
 
     print("\n" + "=" * 78)
     if failures:

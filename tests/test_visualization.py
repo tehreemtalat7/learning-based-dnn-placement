@@ -112,3 +112,35 @@ def test_colour_and_marker_assignment_is_stable_per_method():
     assert visualization.colour_for("greedy_objective_aware") == visualization.SLOT_COLOURS[1]
     assert visualization.colour_for("exhaustive") == visualization.TEXT_SECONDARY
     assert visualization.marker_for("dqn") != visualization.marker_for("greedy_objective_aware")
+
+
+def test_no_figure_plots_two_methods_in_the_same_colour():
+    """Colour identifies the method, so a collision inside one figure is a bug.
+
+    Several methods deliberately share a slot because they never appear
+    together; this checks that assumption against the actual method lists the
+    experiment scripts plot.
+    """
+    from experiments.dynamic_device_experiment import PLOTTED_METHODS as device_methods
+    from experiments.dynamic_network_experiment import PLOTTED_METHODS as network_methods
+    from experiments.scaling_experiment import PLOTTED_METHODS as scaling_methods
+
+    for name, methods in (
+        ("scaling", scaling_methods),
+        ("dynamic network", network_methods),
+        ("device load", device_methods),
+    ):
+        colours = {}
+        for method in methods:
+            if method in visualization.REFERENCE_METHODS:
+                continue  # references share the neutral ink by design
+            colour = visualization.colour_for(method)
+            assert colour not in colours, (
+                f"{name} figure gives {method!r} and {colours[colour]!r} the same colour"
+            )
+            colours[colour] = method
+
+
+def test_reference_methods_are_drawn_in_neutral_ink():
+    for method in ("exhaustive", "dp_relaxed", "dp_exact"):
+        assert visualization.colour_for(method) == visualization.TEXT_SECONDARY
